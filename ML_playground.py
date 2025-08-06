@@ -200,123 +200,134 @@ if st.button("Exec --> Preprocessing"):
 # =============================================
 st.markdown('<p style="font-family:cursive; color:white; font-size: 28px; background-color: #008080;">4. Model Training and Predict target</p>', unsafe_allow_html=True)
 
-if "df_filled" not in st.session_state or st.session_state["df_filled"] is None:
-    st.error("⚠️ Please run preprocessing before training the model.")
-else:
-    df_filled = st.session_state["df_filled"]
+def needs_preprocessing(df):
+    has_categorical = len(df.select_dtypes(exclude=[np.number]).columns) > 0
+    return has_categorical
 
-    split_cols1 = st.columns(3)
-    select_task = split_cols1[0].selectbox(
-        "Select the task",
-        ["Classification(binary)", "Regression"],
-        index=0
-    )
-    model_choices = split_cols1[1].multiselect(
-        "Select models",
-        ["LightGBM", "XGBoost", "CatBoost"],
-        default=["LightGBM"]
-    )
-    if st.session_state["df_filled"] is not None:
-        df_filled = st.session_state["df_filled"]
-        select_target = split_cols1[2].selectbox(
-            "TARGET", df_filled.columns, index=list(df_filled.columns).index("target") if "target" in df_filled.columns else 0
-        )
+if needs_preprocessing(df):
+    if "df_filled" not in st.session_state or st.session_state["df_filled"] is None:
+        st.error("⚠️ Please preprocess categorical columns before training.")
+        st.stop()
     else:
-        split_cols1[2].warning("⚠️ Run preprocessing first")
-        select_target = None
+        df_filled = st.session_state["df_filled"]
+else:
+    df_filled = st.session_state["df_filled"] if st.session_state["df_filled"] is not None else df.copy()
 
-    split_cols2 = st.columns(2)
-    test_size = split_cols2[0].slider("Validation data size(ratio):", 0.1, 0.5, 0.2)
-    random_seed = split_cols2[1].number_input("Random seed:", min_value=0, step=1, value=42)
+split_cols1 = st.columns(3)
+select_task = split_cols1[0].selectbox(
+    "Select the task",
+    ["Classification(binary)", "Regression"],
+    index=0
+)
+model_choices = split_cols1[1].multiselect(
+    "Select models",
+    ["LightGBM", "XGBoost", "CatBoost"],
+    default=["LightGBM"]
+)
+select_target = split_cols1[2].selectbox(
+    "TARGET", df_filled.columns, index=list(df_filled.columns).index("target") if "target" in df_filled.columns else 0
+)
+# if st.session_state["df_filled"] is not None:
+#     df_filled = st.session_state["df_filled"]
+#     select_target = split_cols1[2].selectbox(
+#         "TARGET", df_filled.columns, index=list(df_filled.columns).index("target") if "target" in df_filled.columns else 0
+#     )
+# else:
+#     split_cols1[2].warning("⚠️ Run preprocessing first")
+#     select_target = None
 
-    X = df_filled.drop(columns=select_target)
-    y = df_filled[select_target]
+split_cols2 = st.columns(2)
+test_size = split_cols2[0].slider("Validation data size(ratio):", 0.1, 0.5, 0.2)
+random_seed = split_cols2[1].number_input("Random seed:", min_value=0, step=1, value=42)
 
-    X_train, X_val, y_train, y_val = train_test_split(
-        X, y, test_size=test_size, random_state=random_seed
-    )
+X = df_filled.drop(columns=select_target)
+y = df_filled[select_target]
 
-    results = []
-    roc_curves = []
-    pred_vs_actual = []
+X_train, X_val, y_train, y_val = train_test_split(
+    X, y, test_size=test_size, random_state=random_seed
+)
 
-    if st.button("Exec --> Model training"):
-        for model_choice in model_choices:
-            # --- Selecting models
-            if select_task == "Classification(binary)":
-                if "LightGBM" in model_choice: model = LGBMClassifier(random_state=random_seed)
-                elif "XGBoost" in model_choice: model = XGBClassifier(eval_metric='logloss', random_state=random_seed)
-                else: model = CatBoostClassifier(verbose=0, random_state=random_seed)
-            else:
-                if "LightGBM" in model_choice: model = LGBMRegressor(random_state=random_seed)
-                elif "XGBoost" in model_choice: model = XGBRegressor(random_state=random_seed)
-                else: model = CatBoostRegressor(verbose=0, random_state=random_seed)
+results = []
+roc_curves = []
+pred_vs_actual = []
 
-            # --- Training
-            model.fit(X_train, y_train)
+if st.button("Exec --> Model training"):
+    for model_choice in model_choices:
+        # --- Selecting models
+        if select_task == "Classification(binary)":
+            if "LightGBM" in model_choice: model = LGBMClassifier(random_state=random_seed)
+            elif "XGBoost" in model_choice: model = XGBClassifier(eval_metric='logloss', random_state=random_seed)
+            else: model = CatBoostClassifier(verbose=0, random_state=random_seed)
+        else:
+            if "LightGBM" in model_choice: model = LGBMRegressor(random_state=random_seed)
+            elif "XGBoost" in model_choice: model = XGBRegressor(random_state=random_seed)
+            else: model = CatBoostRegressor(verbose=0, random_state=random_seed)
 
-            # --- Evaluation
-            if select_task == "Classification(binary)":
-                y_pred_proba = model.predict_proba(X_val)[:, 1]
-                auc = roc_auc_score(y_val, y_pred_proba)
-                results.append({"Model": model_choice, "Metric": "AUC", "Score": auc})
+        # --- Training
+        model.fit(X_train, y_train)
 
-                # ROC
-                fpr, tpr, _ = roc_curve(y_val, y_pred_proba)
-                roc_curves.append((model_choice, fpr, tpr, auc))
-            else:
-                y_pred = model.predict(X_val)
-                mae = mean_absolute_error(y_val, y_pred)
-                results.append({"Model": model_choice, "Metric": "MAE", "Score": mae})
-                pred_vs_actual.append((model_choice, y_val, y_pred))
-
-        # --- Visualization
-        st.write("### Model Performance")
-        eval_cols = st.columns(2)
-        results_df = pd.DataFrame(results)
-
-        if select_task == "Classification(binary)" and roc_curves:
-            # Bar plot
-            fig_bar = px.bar(
-                results_df, x="Model", y="Score", color="Model",
-                text=results_df["Score"].round(3)
-            )
-            fig_bar.update_layout(
-                yaxis=dict(title="AUC", range=[0.5, 1.0]),
-                xaxis_title="Model", showlegend=False
-            )
-            fig_bar.update_traces(textposition='outside')
-            eval_cols[0].write("#### AUC Scores")
-            eval_cols[0].plotly_chart(fig_bar, use_container_width=False)
+        # --- Evaluation
+        if select_task == "Classification(binary)":
+            y_pred_proba = model.predict_proba(X_val)[:, 1]
+            auc = roc_auc_score(y_val, y_pred_proba)
+            results.append({"Model": model_choice, "Metric": "AUC", "Score": auc})
 
             # ROC
-            fig_roc = go.Figure()
-            for model_name, fpr, tpr, auc in roc_curves:
-                fig_roc.add_trace(go.Scatter(x=fpr, y=tpr, mode='lines', name=f"{model_name} (AUC={auc:.3f})"))
-            fig_roc.add_trace(go.Scatter(x=[0,1], y=[0,1], mode='lines', line=dict(dash='dash'), name="Random"))
-            fig_roc.update_layout(xaxis_title="False Positive Rate", yaxis_title="True Positive Rate")
-            eval_cols[1].write("#### ROC curve")
-            eval_cols[1].plotly_chart(fig_roc, use_container_width=False)
+            fpr, tpr, _ = roc_curve(y_val, y_pred_proba)
+            roc_curves.append((model_choice, fpr, tpr, auc))
+        else:
+            y_pred = model.predict(X_val)
+            mae = mean_absolute_error(y_val, y_pred)
+            results.append({"Model": model_choice, "Metric": "MAE", "Score": mae})
+            pred_vs_actual.append((model_choice, y_val, y_pred))
 
-        elif select_task == "Regression":
-            # Bar plot
-            fig_bar = px.bar(
-                results_df, x="Model", y="Score", color="Model",
-                text=results_df["Score"].round(3)
-            )
-            fig_bar.update_layout(yaxis=dict(title="MAE"), xaxis_title="Model", showlegend=False)
-            fig_bar.update_traces(textposition='outside')
-            eval_cols[0].write("#### MAE Scores")
-            eval_cols[0].plotly_chart(fig_bar, use_container_width=False)
+    # --- Visualization
+    st.write("### Model Performance")
+    eval_cols = st.columns(2)
+    results_df = pd.DataFrame(results)
 
-            # Pred vs Actual
-            fig_scatter = go.Figure()
-            for model_name, y_true, y_pred in pred_vs_actual:
-                fig_scatter.add_trace(go.Scatter(x=y_true, y=y_pred, mode="markers", name=model_name, opacity=0.6))
-            fig_scatter.add_trace(go.Scatter(
-                x=[y_val.min(), y_val.max()], y=[y_val.min(), y_val.max()],
-                mode="lines", line=dict(dash="dash", color="red"), name="Ideal"
-            ))
-            fig_scatter.update_layout(xaxis_title="Actual", yaxis_title="Predicted")
-            eval_cols[1].write("#### Predicted vs Actual")
-            eval_cols[1].plotly_chart(fig_scatter, use_container_width=False)
+    if select_task == "Classification(binary)" and roc_curves:
+        # Bar plot
+        fig_bar = px.bar(
+            results_df, x="Model", y="Score", color="Model",
+            text=results_df["Score"].round(3)
+        )
+        fig_bar.update_layout(
+            yaxis=dict(title="AUC", range=[0.5, 1.0]),
+            xaxis_title="Model", showlegend=False
+        )
+        fig_bar.update_traces(textposition='outside')
+        eval_cols[0].write("#### AUC Scores")
+        eval_cols[0].plotly_chart(fig_bar, use_container_width=False)
+
+        # ROC
+        fig_roc = go.Figure()
+        for model_name, fpr, tpr, auc in roc_curves:
+            fig_roc.add_trace(go.Scatter(x=fpr, y=tpr, mode='lines', name=f"{model_name} (AUC={auc:.3f})"))
+        fig_roc.add_trace(go.Scatter(x=[0,1], y=[0,1], mode='lines', line=dict(dash='dash'), name="Random"))
+        fig_roc.update_layout(xaxis_title="False Positive Rate", yaxis_title="True Positive Rate")
+        eval_cols[1].write("#### ROC curve")
+        eval_cols[1].plotly_chart(fig_roc, use_container_width=False)
+
+    elif select_task == "Regression":
+        # Bar plot
+        fig_bar = px.bar(
+            results_df, x="Model", y="Score", color="Model",
+            text=results_df["Score"].round(3)
+        )
+        fig_bar.update_layout(yaxis=dict(title="MAE"), xaxis_title="Model", showlegend=False)
+        fig_bar.update_traces(textposition='outside')
+        eval_cols[0].write("#### MAE Scores")
+        eval_cols[0].plotly_chart(fig_bar, use_container_width=False)
+
+        # Pred vs Actual
+        fig_scatter = go.Figure()
+        for model_name, y_true, y_pred in pred_vs_actual:
+            fig_scatter.add_trace(go.Scatter(x=y_true, y=y_pred, mode="markers", name=model_name, opacity=0.6))
+        fig_scatter.add_trace(go.Scatter(
+            x=[y_val.min(), y_val.max()], y=[y_val.min(), y_val.max()],
+            mode="lines", line=dict(dash="dash", color="red"), name="Ideal"
+        ))
+        fig_scatter.update_layout(xaxis_title="Actual", yaxis_title="Predicted")
+        eval_cols[1].write("#### Predicted vs Actual")
+        eval_cols[1].plotly_chart(fig_scatter, use_container_width=False)
