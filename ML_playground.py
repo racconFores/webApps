@@ -98,9 +98,9 @@ missing_counts = df.isnull().sum()
 st.bar_chart(missing_counts)
 
 # =============================================
-# EDA
+# Data Visualization
 # =============================================
-# st.write("# 2. EDA")
+# st.write("# 2. Data Visualization")
 st.markdown('<p style="font-family:cursive; color:white; font-size: 28px; background-color: #008080;">3. EDA</p>', unsafe_allow_html=True)
 
 # --- Select a method ---
